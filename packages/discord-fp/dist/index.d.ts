@@ -55,4 +55,4 @@ declare function modal(options: {
 declare function handleInteraction(interaction: Interaction): Promise<void>;
 declare function initInteractionHandler(discordClient: Client, options?: DiscordFPHandlerOptions): Promise<void>;
 
-export { ApplicationCommandOptionTypeString, DiscordFPHandlerOptions, SelectMenuTypeString, button, command, handleInteraction, initInteractionHandler, modal, selectMenu };
+export { DiscordFPHandlerOptions, button, command, handleInteraction, initInteractionHandler, modal, selectMenu };
