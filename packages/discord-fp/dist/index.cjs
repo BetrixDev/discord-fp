@@ -34,10 +34,14 @@ __export(src_exports, {
   command: () => command,
   handleInteraction: () => handleInteraction,
   initInteractionHandler: () => initInteractionHandler,
+  middleware: () => middleware,
   modal: () => modal,
+  on: () => on,
+  once: () => once,
   selectMenu: () => selectMenu
 });
 module.exports = __toCommonJS(src_exports);
+var import_types = require("util/types");
 var import_glob = require("glob");
 var import_path = __toESM(require("path"), 1);
 var client;
@@ -48,6 +52,24 @@ var modals = [];
 function command(options, run) {
   commands.set(options.name, { commandOptions: options, commandFunc: run });
 }
+function on(eventName, run) {
+  if (client) {
+    client.on(eventName, run);
+  } else {
+    console.warn(
+      `Unable to register client event ${eventName}, please call initInteractionHandler before calling this function`
+    );
+  }
+}
+function once(eventName, run) {
+  if (client) {
+    client.once(eventName, run);
+  } else {
+    console.warn(
+      `Unable to register client event ${eventName}, please call initInteractionHandler before calling this function`
+    );
+  }
+}
 function button(options, run) {
   buttons.push({ id: options.id, run });
 }
@@ -56,6 +78,9 @@ function selectMenu(options, run) {
 }
 function modal(options, run) {
   modals.push({ id: options.id, run });
+}
+function middleware(run) {
+  return run;
 }
 async function include(paths) {
   const imports = [];
@@ -71,15 +96,88 @@ async function include(paths) {
   );
   await Promise.all(imports.map((file) => import(file)));
 }
-async function handleInteraction(interaction) {
+function getComponentsArray(interaction) {
+  if (interaction.isButton()) {
+    return buttons;
+  } else if (interaction.isAnySelectMenu()) {
+    return selectMenus;
+  } else {
+    return modals;
+  }
 }
-async function initInteractionHandler(discordClient, options) {
-  const app = discordClient.application;
-  if (!app) {
+function getMatchingComponent(customId, components) {
+  const matchingComponent = components.find((c) => {
+    if (typeof c.id === "string") {
+      return c.id === customId;
+    } else if ((0, import_types.isRegExp)(c.id)) {
+      const match = customId.match(c.id);
+      return match?.length ?? 0 > 0;
+    }
+  });
+  if (!matchingComponent) {
     throw new Error(
-      "Unable to load! Please wait for the client to be ready before calling initInteractionHandler"
+      `Unable to find a matching component function for component with id: ${customId}`
     );
   }
+  return matchingComponent;
+}
+async function handleInteraction(interaction) {
+  if (interaction.isMessageComponent()) {
+    const customId = interaction.customId;
+    const componentsArray = getComponentsArray(interaction);
+    const matchingComponent = getMatchingComponent(customId, componentsArray);
+    matchingComponent.run(interaction, client);
+  } else if (interaction.isCommand()) {
+    const commandName = interaction.commandName;
+    const foundCommand = commands.get(commandName);
+    if (!foundCommand) {
+      throw new Error(
+        `Command object not found for interaction of name ${commandName}`
+      );
+    }
+    const inputtedValues = interaction.options.data;
+    const convertedArgs = {};
+    inputtedValues.forEach((val) => {
+      const [valName, , valValue] = Object.values(val);
+      convertedArgs[valName] = valValue;
+    });
+    foundCommand.commandFunc(interaction, convertedArgs, client);
+  } else if (interaction.isAutocomplete()) {
+    const commandName = interaction.commandName;
+    const focusedArg = interaction.options.getFocused(true).name;
+    const foundCommand = commands.get(commandName);
+    if (!foundCommand) {
+      throw new Error(
+        `Command object not found for interaction of name ${commandName}`
+      );
+    }
+    const commandArgs = foundCommand.commandOptions.args;
+    if (!commandArgs) {
+      throw new Error(
+        `Unable to find command with valid args for ${commandName}`
+      );
+    }
+    const arg = commandArgs[focusedArg];
+    if (!arg) {
+      throw new Error(
+        `Unable to find arg ${focusedArg} within the command object for ${commandName}`
+      );
+    }
+    if (arg.type === "string" || arg.type === "number" || arg.type === "integer") {
+      const autocomplete = arg?.autocomplete;
+      if (!autocomplete) {
+        throw new Error(
+          `No autocomplete function exists for command object with name ${commandName} and arg ${focusedArg}`
+        );
+      } else if (typeof autocomplete === "boolean") {
+        interaction.respond([]);
+      } else {
+        autocomplete(interaction, client);
+      }
+    }
+  }
+}
+async function initInteractionHandler(discordClient, options) {
   client = discordClient;
   const importPaths = options?.importPaths ?? "*";
   await include(Array.isArray(importPaths) ? importPaths : [importPaths]);
@@ -90,6 +188,9 @@ async function initInteractionHandler(discordClient, options) {
   command,
   handleInteraction,
   initInteractionHandler,
+  middleware,
   modal,
+  on,
+  once,
   selectMenu
 });

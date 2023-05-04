@@ -1,7 +1,7 @@
 {
   "name": "example",
   "scripts": {
-    "dev": "ts-node-esm ./src/index.ts"
+    "dev:old": "ts-node-esm ./src/index.ts"
   },
   "license": "MIT",
   "dependencies": {

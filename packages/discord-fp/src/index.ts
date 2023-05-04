@@ -14,8 +14,10 @@ import {
   RoleSelectMenuInteraction,
   UserSelectMenuInteraction,
   ModalSubmitInteraction,
+  ClientEvents,
 } from "discord.js";
 
+import { isRegExp } from "util/types";
 import { glob } from "glob";
 import path from "path";
 
@@ -152,6 +154,32 @@ export function command<T extends CommandArguments>(
   commands.set(options.name, { commandOptions: options, commandFunc: run });
 }
 
+export function on<T extends keyof ClientEvents>(
+  eventName: T,
+  run: (...args: ClientEvents[T]) => Promisable<void>
+) {
+  if (client) {
+    client.on(eventName, run);
+  } else {
+    console.warn(
+      `Unable to register client event ${eventName}, please call initInteractionHandler before calling this function`
+    );
+  }
+}
+
+export function once<T extends keyof ClientEvents>(
+  eventName: T,
+  run: (...args: ClientEvents[T]) => Promisable<void>
+) {
+  if (client) {
+    client.once(eventName, run);
+  } else {
+    console.warn(
+      `Unable to register client event ${eventName}, please call initInteractionHandler before calling this function`
+    );
+  }
+}
+
 export function button(
   options: { id: RegExp | string },
   run: ComponentRunFunction<ButtonInteraction>
@@ -193,6 +221,12 @@ export function modal(
   modals.push({ id: options.id, run });
 }
 
+export function middleware(
+  run: (next: () => void, interaction: Interaction, client: Client) => void
+) {
+  return run;
+}
+
 async function include(paths: string[]) {
   const imports: string[] = [];
 
@@ -210,38 +244,118 @@ async function include(paths: string[]) {
   await Promise.all(imports.map((file) => import(file)));
 }
 
+function getComponentsArray(interaction: Interaction) {
+  if (interaction.isButton()) {
+    return buttons;
+  } else if (interaction.isAnySelectMenu()) {
+    return selectMenus;
+  } else {
+    return modals;
+  }
+}
+
+function getMatchingComponent(customId: string, components: StoredComponent[]) {
+  const matchingComponent = components.find((c) => {
+    if (typeof c.id === "string") {
+      return c.id === customId;
+    } else if (isRegExp(c.id)) {
+      const match = customId.match(c.id);
+      return match?.length ?? 0 > 0;
+    }
+  });
+
+  if (!matchingComponent) {
+    throw new Error(
+      `Unable to find a matching component function for component with id: ${customId}`
+    );
+  }
+
+  return matchingComponent;
+}
+
 export async function handleInteraction(interaction: Interaction) {
-  // if (interaction.isCommand()) {
-  //   const commandName = interaction.commandName;
-  //   const foundCommand = this._commands.get(commandName);
-  //   if (!foundCommand) {
-  //     throw new Error(
-  //       `Command not found for interaction of name ${commandName}`
-  //     );
-  //   }
-  //   const inputtedValues = interaction.options.data;
-  //   const convertedArgs: Record<string, any> = {};
-  //   inputtedValues.forEach((val) => {
-  //     const [valName, , valValue] = Object.values(val);
-  //     // convertedArgs[toCamelCase(valName)] = valValue;
-  //     convertedArgs[valName] = valValue;
-  //   });
-  //   foundCommand.commandFunc(interaction, convertedArgs, this._client);
-  // }
+  if (interaction.isMessageComponent()) {
+    const customId = interaction.customId;
+
+    const componentsArray = getComponentsArray(interaction);
+    const matchingComponent = getMatchingComponent(customId, componentsArray);
+
+    matchingComponent.run(interaction as never, client);
+  } else if (interaction.isCommand()) {
+    const commandName = interaction.commandName;
+
+    const foundCommand = commands.get(commandName);
+
+    if (!foundCommand) {
+      throw new Error(
+        `Command object not found for interaction of name ${commandName}`
+      );
+    }
+
+    const inputtedValues = interaction.options.data;
+    const convertedArgs: Record<string, any> = {};
+
+    inputtedValues.forEach((val) => {
+      const [valName, , valValue] = Object.values(val);
+
+      // convertedArgs[toCamelCase(valName)] = valValue;
+      convertedArgs[valName] = valValue;
+    });
+
+    foundCommand.commandFunc(interaction, convertedArgs, client);
+  } else if (interaction.isAutocomplete()) {
+    const commandName = interaction.commandName;
+    const focusedArg = interaction.options.getFocused(true).name;
+
+    const foundCommand = commands.get(commandName);
+
+    if (!foundCommand) {
+      throw new Error(
+        `Command object not found for interaction of name ${commandName}`
+      );
+    }
+
+    const commandArgs = foundCommand.commandOptions.args;
+
+    if (!commandArgs) {
+      throw new Error(
+        `Unable to find command with valid args for ${commandName}`
+      );
+    }
+
+    const arg = commandArgs[focusedArg];
+
+    if (!arg) {
+      throw new Error(
+        `Unable to find arg ${focusedArg} within the command object for ${commandName}`
+      );
+    }
+
+    if (
+      arg.type === "string" ||
+      arg.type === "number" ||
+      arg.type === "integer"
+    ) {
+      const autocomplete = (arg as SlashOptionStringOptions)?.autocomplete;
+
+      if (!autocomplete) {
+        throw new Error(
+          `No autocomplete function exists for command object with name ${commandName} and arg ${focusedArg}`
+        );
+      } else if (typeof autocomplete === "boolean") {
+        // TODO: find out what to do here
+        interaction.respond([]);
+      } else {
+        autocomplete(interaction, client);
+      }
+    }
+  }
 }
 
 export async function initInteractionHandler(
   discordClient: Client,
   options?: DiscordFPHandlerOptions
 ) {
-  const app = discordClient.application;
-
-  if (!app) {
-    throw new Error(
-      "Unable to load! Please wait for the client to be ready before calling initInteractionHandler"
-    );
-  }
-
   client = discordClient;
 
   const importPaths = options?.importPaths ?? "*";

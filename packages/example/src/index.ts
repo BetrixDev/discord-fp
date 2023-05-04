@@ -1,4 +1,4 @@
-import { initInteractionHandler, command } from "discord-fp";
+import { initInteractionHandler, command, on, middleware } from "discord-fp";
 import { Client } from "discord.js";
 
 // Create your discord.js client however you like
@@ -20,9 +20,29 @@ command(
       },
       "non-required-option": {
         description: "this is an argument that can also be undefined!",
-        type: "string",
+        type: "attachment",
       },
     },
   },
   (interaction, args) => {}
 );
+
+command(
+  {
+    name: "asdkjhbasdkjash",
+    args: {
+      joe: {
+        description: "this is joe",
+        required: false,
+        type: "boolean",
+      },
+    },
+  },
+  (interaction, args) => {}
+);
+
+on("interactionCreate", (int) => {});
+
+export const rateLimiter = middleware((next) => {
+  return next();
+});
