@@ -221,12 +221,6 @@ export function modal(
   modals.push({ id: options.id, run });
 }
 
-export function middleware(
-  run: (next: () => void, interaction: Interaction, client: Client) => void
-) {
-  return run;
-}
-
 async function include(paths: string[]) {
   const imports: string[] = [];
 
