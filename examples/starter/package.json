@@ -1,0 +1,20 @@
+{
+  "name": "starter",
+  "scripts": {
+    "dev": "ts-node-esm src/index.ts"
+  },
+  "type": "module",
+  "main": "./src/index.ts",
+  "devDependencies": {
+    "@types/node": "^20.1.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.4"
+  },
+  "dependencies": {
+    "@discordx/importer": "^1.2.2",
+    "discord-fp": "workspace:*",
+    "discord.js": ">=14",
+    "dotenv": "^16.0.3",
+    "glob": "^10.2.2"
+  }
+}

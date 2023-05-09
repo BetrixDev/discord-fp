@@ -1,3 +1,6 @@
+import { Promisable, CamelCase } from "type-fest";
+import { isRegExp } from "util/types";
+import toCamelCase from "camelcase";
 import {
   Client,
   CommandInteraction,
@@ -15,25 +18,26 @@ import {
   UserSelectMenuInteraction,
   ModalSubmitInteraction,
   ClientEvents,
+  ApplicationCommandData,
+  ApplicationCommandOptionType,
+  ApplicationCommandOptionData,
 } from "discord.js";
 
-import { isRegExp } from "util/types";
-import { glob } from "glob";
-import path from "path";
-
-import { Promisable } from "type-fest";
+const APP_COMMAND_OPTION_STRING_TO_ENUM = {
+  attachment: ApplicationCommandOptionType.Attachment,
+  boolean: ApplicationCommandOptionType.Boolean,
+  channel: ApplicationCommandOptionType.Channel,
+  integer: ApplicationCommandOptionType.Integer,
+  mentionable: ApplicationCommandOptionType.Mentionable,
+  number: ApplicationCommandOptionType.Number,
+  user: ApplicationCommandOptionType.User,
+  string: ApplicationCommandOptionType.String,
+  subcommand: ApplicationCommandOptionType.Subcommand,
+  subcommandGroup: ApplicationCommandOptionType.SubcommandGroup,
+} as const;
 
 type ApplicationCommandOptionTypeString =
-  | "attachment"
-  | "boolean"
-  | "channel"
-  | "integer"
-  | "mentionable"
-  | "number"
-  | "user"
-  | "string"
-  | "subcommand"
-  | "subcommandGroup";
+  keyof typeof APP_COMMAND_OPTION_STRING_TO_ENUM;
 
 type SelectMenuTypeString =
   | "string"
@@ -42,13 +46,10 @@ type SelectMenuTypeString =
   | "role"
   | "mentionable";
 
-type SlashAutoCompleteOption =
-  | undefined
-  | boolean
-  | ((
-      interaction: AutocompleteInteraction,
-      client: Client
-    ) => void | Promise<void>);
+type SlashAutoCompleteOption = (
+  interaction: AutocompleteInteraction,
+  client: Client
+) => void | Promise<void>;
 
 type SlashOptionBaseOptions = {
   description: string;
@@ -88,7 +89,7 @@ type CommandArguments = Record<string, SlashOptionOptions>;
 type CommandOptions<T> = {
   name: string;
   args?: T;
-};
+} & ApplicationCommandData;
 
 type ReturnTypeOfInteractionOption<T extends keyof CommandInteractionOption> =
   NonNullable<CommandInteractionOption[T]>;
@@ -143,8 +144,7 @@ export function command<T extends CommandArguments>(
   run: (
     interaction: CommandInteraction,
     args: {
-      // TODO: Fix `CamelCase<K>` hiding type inference
-      [K in keyof T]: T[K]["required"] extends true
+      [K in keyof T as CamelCase<K>]: T[K]["required"] extends true
         ? ReturnTypeOfType<T[K]["type"]>
         : ReturnTypeOfType<T[K]["type"]> | undefined;
     },
@@ -161,7 +161,7 @@ export function on<T extends keyof ClientEvents>(
   if (client) {
     client.on(eventName, run);
   } else {
-    console.warn(
+    throw new Error(
       `Unable to register client event ${eventName}, please call initInteractionHandler before calling this function`
     );
   }
@@ -174,7 +174,7 @@ export function once<T extends keyof ClientEvents>(
   if (client) {
     client.once(eventName, run);
   } else {
-    console.warn(
+    throw new Error(
       `Unable to register client event ${eventName}, please call initInteractionHandler before calling this function`
     );
   }
@@ -219,23 +219,6 @@ export function modal(
   ) => void | Promise<void>
 ) {
   modals.push({ id: options.id, run });
-}
-
-async function include(paths: string[]) {
-  const imports: string[] = [];
-
-  await Promise.all(
-    paths.map(async (ps) => {
-      const files = await glob(ps.split(path.sep).join("/"));
-      files.forEach((file) => {
-        if (!imports.includes(file)) {
-          imports.push(`file://${file}`);
-        }
-      });
-    })
-  );
-
-  await Promise.all(imports.map((file) => import(file)));
 }
 
 function getComponentsArray(interaction: Interaction) {
@@ -292,8 +275,7 @@ export async function handleInteraction(interaction: Interaction) {
     inputtedValues.forEach((val) => {
       const [valName, , valValue] = Object.values(val);
 
-      // convertedArgs[toCamelCase(valName)] = valValue;
-      convertedArgs[valName] = valValue;
+      convertedArgs[toCamelCase(valName)] = valValue;
     });
 
     foundCommand.commandFunc(interaction, convertedArgs, client);
@@ -336,14 +318,42 @@ export async function handleInteraction(interaction: Interaction) {
         throw new Error(
           `No autocomplete function exists for command object with name ${commandName} and arg ${focusedArg}`
         );
-      } else if (typeof autocomplete === "boolean") {
-        // TODO: find out what to do here
-        interaction.respond([]);
       } else {
         autocomplete(interaction, client);
       }
     }
   }
+}
+
+export async function registerCommands() {
+  if (!client.application) {
+    throw new Error(
+      "Client not ready yet, please invoke this after after your client has started"
+    );
+  }
+
+  client.application.commands.set(
+    [...commands.values()].map((c) => {
+      const options: ApplicationCommandOptionData[] = [];
+
+      if (c.commandOptions.args) {
+        Object.entries(c.commandOptions.args).forEach(([key, val]) => {
+          options.push({
+            name: key,
+            ...val,
+            type: APP_COMMAND_OPTION_STRING_TO_ENUM[val.type],
+          } as ApplicationCommandOptionData);
+        });
+      }
+
+      return {
+        ...c.commandOptions,
+        options,
+      };
+    })
+  );
+
+  console.log(`Registered ${commands.size} commands`);
 }
 
 export async function initInteractionHandler(
@@ -352,6 +362,6 @@ export async function initInteractionHandler(
 ) {
   client = discordClient;
 
-  const importPaths = options?.importPaths ?? "*";
-  await include(Array.isArray(importPaths) ? importPaths : [importPaths]);
+  // const importPaths = options?.importPaths ?? "*/**";
+  // await importx(...importPaths);
 }

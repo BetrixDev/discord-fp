@@ -5,12 +5,12 @@
   "private": false,
   "type": "module",
   "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
   "exports": {
-    "default": "./dist/index.cjs",
-    "require": "./dist/index.cjs",
-    "node": "./dist/index.cjs",
-    "import": "./dist/index.js"
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    }
   },
   "scripts": {
     "build": "tsup"
@@ -34,8 +34,8 @@
     "typescript": "^5.0.4"
   },
   "dependencies": {
+    "camelcase": "^7.0.1",
     "discord.js": ">=14",
-    "glob": "^10.2.2",
     "type-fest": "^3.9.0"
   }
 }
